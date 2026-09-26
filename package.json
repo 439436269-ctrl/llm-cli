@@ -1,0 +1,38 @@
+{
+  "name": "@vfvrpq/llm-cli",
+  "version": "1.0.0",
+  "description": "终端里直接使用智谱 GLM 与 DeepSeek 模型的零依赖命令行客户端（含 glm-cli 与 deepseek-cli 两个命令）",
+  "license": "MIT",
+  "author": "vfvrpq",
+  "type": "commonjs",
+  "bin": {
+    "glm-cli": "glm_cli.js",
+    "deepseek-cli": "deepseek_cli.js"
+  },
+  "files": [
+    "glm_cli.js",
+    "deepseek_cli.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "glm",
+    "deepseek",
+    "zhipu",
+    "bigmodel",
+    "llm",
+    "cli",
+    "chat"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/439436269-ctrl/llm-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/439436269-ctrl/llm-cli/issues"
+  },
+  "homepage": "https://github.com/439436269-ctrl/llm-cli#readme"
+}

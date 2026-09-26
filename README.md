@@ -9,6 +9,21 @@
 
 Windows 下可用同目录的 `glm.bat` / `deepseek.bat` 启动，例如 `.\glm.bat chat`。
 
+## 安装（npm）
+
+```bash
+npm i -g @vfvrpq/llm-cli   # 全局安装，得到 glm-cli 与 deepseek-cli 两个命令
+glm-cli --help
+
+# 免安装直接运行
+npx -p @vfvrpq/llm-cli glm-cli ask "你好"
+
+# 或免 npm：下载仓库后直接运行
+node glm_cli.js ask "你好"
+```
+
+下文示例中的 `node glm_cli.js` / `node deepseek_cli.js` 在全局安装后可分别换成 `glm-cli` / `deepseek-cli`。
+
 ## 准备 API Key
 
 - GLM（智谱）：<https://open.bigmodel.cn> 控制台 → API Key（海外版 <https://z.ai>）
