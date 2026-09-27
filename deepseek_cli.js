@@ -19,7 +19,7 @@ const path = require("node:path");
 const readline = require("node:readline");
 const { Writable } = require("node:stream");
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-chat";

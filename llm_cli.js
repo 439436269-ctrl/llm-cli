@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * glm-cli —— 在终端里直接使用智谱 GLM 系列模型。
+ * llm-cli —— 多供应商终端客户端：智谱 GLM / DeepSeek / 小米 MiMo / Kimi / 硅基流动 / 火山方舟 / OpenAI。
  * 零依赖，需要 Node.js >= 18（内置 fetch）。
  *
  * 快速开始:
- *   node glm_cli.js config set api-key      # 手动输入并保存 API Key
- *   node glm_cli.js ask "一句话介绍你自己"
- *   node glm_cli.js chat
- *   node glm_cli.js models
+ *   node llm_cli.js config set api-key --provider mimo    # 按供应商保存 Key（隐藏输入）
+ *   node llm_cli.js ask "一句话介绍你自己"
+ *   node llm_cli.js chat -p kimi
+ *   node llm_cli.js models -p deepseek
  *
- * Key 获取: https://open.bigmodel.cn 控制台 -> API Key（海外站 https://z.ai）
+ * 供应商与 Key 获取地址见 --help；配置文件 ~/.llm-cli/config.json。
  */
 "use strict";
 
@@ -21,13 +21,82 @@ const { Writable } = require("node:stream");
 
 const VERSION = "1.1.0";
 
-// 默认智谱国内站；使用海外 z.ai 时换成 https://api.z.ai/api/paas/v4
-const DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
-const DEFAULT_MODEL = "glm-5.3-flash";
-const ENV_API_KEYS = ["GLM_API_KEY", "ZHIPUAI_API_KEY", "ZHIPU_API_KEY"];
+// defaultModel 为 null 表示该供应商没有内置默认模型，调用时必须用 -m 指定
+const PROVIDERS = {
+  glm: {
+    label: "智谱 GLM",
+    defaultBase: "https://open.bigmodel.cn/api/paas/v4",
+    defaultModel: "glm-5.3-flash",
+    envKeys: ["GLM_API_KEY", "ZHIPUAI_API_KEY", "ZHIPU_API_KEY"],
+    keyUrl: "https://open.bigmodel.cn 控制台 -> API Key",
+    hint: "可用模型：glm-5.3-flash / glm-5.3 / glm-4.6 / glm-4.7 等（coding 订阅端点见 README）",
+    supportsThinking: true,
+    prefixes: ["glm"],
+  },
+  deepseek: {
+    label: "DeepSeek",
+    defaultBase: "https://api.deepseek.com/v1",
+    defaultModel: "deepseek-flash",
+    envKeys: ["DEEPSEEK_API_KEY"],
+    keyUrl: "https://platform.deepseek.com -> API Keys",
+    hint: "当前账号可用：deepseek-flash / deepseek-v4-pro",
+    supportsThinking: false,
+    prefixes: ["deepseek"],
+  },
+  mimo: {
+    label: "小米 MiMo",
+    defaultBase: "https://api.xiaomimimo.com/v1",
+    defaultModel: "mimo-v2.6-flash",
+    envKeys: ["MIMO_API_KEY", "XIAOMI_API_KEY"],
+    keyUrl: "https://platform.xiaomimimo.com",
+    hint: "可用模型：mimo-v2.6-flash / mimo-v2.6-pro / mimo-v2.5 等",
+    supportsThinking: false,
+    prefixes: ["mimo"],
+  },
+  kimi: {
+    label: "Kimi（月之暗面）",
+    defaultBase: "https://api.moonshot.cn/v1",
+    defaultModel: "kimi-latest",
+    envKeys: ["MOONSHOT_API_KEY", "KIMI_API_KEY"],
+    keyUrl: "https://platform.moonshot.cn -> API Key",
+    hint: "默认 kimi-latest（自动指向最新模型）",
+    supportsThinking: false,
+    prefixes: ["kimi", "moonshot"],
+  },
+  siliconflow: {
+    label: "硅基流动 SiliconFlow",
+    defaultBase: "https://api.siliconflow.cn/v1",
+    defaultModel: null,
+    envKeys: ["SILICONFLOW_API_KEY"],
+    keyUrl: "https://cloud.siliconflow.cn -> API 密钥",
+    hint: "模型名形如 deepseek-ai/DeepSeek-V3.1，需用 -m 指定",
+    supportsThinking: false,
+    prefixes: ["siliconflow"],
+  },
+  ark: {
+    label: "火山方舟 Ark（豆包）",
+    defaultBase: "https://ark.cn-beijing.volces.com/api/v3",
+    defaultModel: null,
+    envKeys: ["ARK_API_KEY"],
+    keyUrl: "https://console.volcengine.com/ark -> API Key",
+    hint: "模型为接入点 ID 或 doubao-* 名称，需用 -m 指定",
+    supportsThinking: false,
+    prefixes: ["ark", "doubao"],
+  },
+  openai: {
+    label: "OpenAI",
+    defaultBase: "https://api.openai.com/v1",
+    defaultModel: null,
+    envKeys: ["OPENAI_API_KEY"],
+    keyUrl: "https://platform.openai.com -> API keys",
+    hint: "需用 -m 指定模型（如 gpt-*）",
+    supportsThinking: false,
+    prefixes: ["gpt"],
+  },
+};
 
-// 环境变量 GLM_CLI_HOME 可把配置目录改到别处（便携 / 多账号场景）
-const CONFIG_DIR = process.env.GLM_CLI_HOME || path.join(os.homedir(), ".glm-cli");
+// 环境变量 LLM_CLI_HOME 可把配置目录改到别处（便携 / 多账号场景）
+const CONFIG_DIR = process.env.LLM_CLI_HOME || path.join(os.homedir(), ".llm-cli");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const HISTORY_FILE = path.join(CONFIG_DIR, "chat-latest.json");
 
@@ -35,13 +104,14 @@ const STREAM_IDLE_MS = 120000; // 流式模式下两次数据块之间的最大�
 const PLAIN_MS = 300000;       // 非流式模式的整体等待（毫秒）
 
 const HINTS = {
-  401: "API Key 缺失、无效或未生效。请执行: node glm_cli.js config set api-key",
-  403: "当前 Key 无权访问该模型，或账号未开通对应服务。",
-  404: "模型名或接口地址可能有误：用 --model 指定模型，--base-url 指定接口地址。",
+  401: "API Key 缺失、无效或未生效。请执行: node llm_cli.js config set api-key --provider <名称>",
+  403: "当前 Key 无权访问该模型，或账户余额不足。",
+  404: "模型名或接口地址可能有误：用 -m/--model 指定模型，--base-url 指定接口地址。",
+  402: "账户余额不足，请前往对应平台充值。",
   429: "请求过于频繁，或额度/资源包不足，请稍后再试。",
 };
 
-const TIMEOUT_REASON = "glm-cli-idle-timeout";
+const TIMEOUT_REASON = "llm-cli-idle-timeout";
 
 class ApiError extends Error {}
 
@@ -79,30 +149,64 @@ function saveConfig(cfg) {
   }
 }
 
+function normalizeProvider(p) {
+  const key = String(p || "").trim().toLowerCase();
+  const alias = { zhipu: "glm", moonshot: "kimi", xiaomi: "mimo", volc: "ark" };
+  const name = alias[key] || key;
+  if (!PROVIDERS[name]) {
+    throw new ApiError(`未知供应商 "${p}"，可选：${Object.keys(PROVIDERS).join(" / ")}`);
+  }
+  return name;
+}
+
+// 没显式指定 --provider 时，尝试从模型名前缀推断（如 glm-* / deepseek-* / mimo-*）
+function inferProvider(model) {
+  const m = String(model || "").toLowerCase();
+  for (const [id, pc] of Object.entries(PROVIDERS)) {
+    if (pc.prefixes.some((p) => m.startsWith(p))) return id;
+  }
+  return null;
+}
+
+function providerOf(args, cfg) {
+  return normalizeProvider(args.provider || inferProvider(args.model) || cfg.default_provider || "glm");
+}
+
 function resolveRuntime(args, cfg) {
+  const provider = providerOf(args, cfg);
+  const pc = PROVIDERS[provider];
+  const conf = (cfg.providers && cfg.providers[provider]) || {};
   let apiKey = args.api_key;
   if (!apiKey) {
-    for (const k of ENV_API_KEYS) {
+    for (const k of pc.envKeys) {
       const v = process.env[k];
       if (v) { apiKey = v; break; }
     }
   }
-  if (!apiKey) apiKey = cfg.api_key;
+  if (!apiKey) apiKey = conf.api_key;
+  const model = args.model || conf.model || pc.defaultModel;
+  if (!model) {
+    throw new ApiError(`[${provider}] 没有内置默认模型，必须用 -m 指定。${pc.hint ? "\n" + pc.hint : ""}`);
+  }
   return {
+    provider,
+    label: pc.label,
     apiKey,
-    model: args.model || cfg.model || DEFAULT_MODEL,
-    baseUrl: args.base_url || cfg.base_url || DEFAULT_BASE_URL,
+    model,
+    baseUrl: args.base_url || conf.base_url || pc.defaultBase,
+    pc,
   };
 }
 
-function requireKey(apiKey) {
+function requireKey(apiKey, rt) {
   if (apiKey) return apiKey;
+  const pc = rt.pc;
   throw new ApiError(
-    "尚未配置 API Key，请任选其一：\n" +
-    "  1. node glm_cli.js config set api-key   （推荐，保存后长期使用）\n" +
-    "  2. 设置环境变量 GLM_API_KEY\n" +
-    "  3. 临时使用：--api-key <你的Key>\n" +
-    "Key 获取：https://open.bigmodel.cn 控制台 -> API Key"
+    `尚未配置 [${rt.provider}] 的 API Key，请任选其一：\n` +
+    `  1. node llm_cli.js config set api-key --provider ${rt.provider}   （推荐）\n` +
+    `  2. 设置环境变量 ${pc.envKeys[0]}\n` +
+    `  3. 临时使用：--api-key <你的Key>\n` +
+    `Key 获取：${pc.keyUrl}`
   );
 }
 
@@ -124,7 +228,7 @@ async function friendlyHTTPError(resp) {
     const text = await resp.text();
     try {
       const obj = JSON.parse(text);
-      detail = (obj.error && obj.error.message) || text.trim();
+      detail = (obj.error && (obj.error.message || obj.error.msg)) || text.trim();
     } catch {
       detail = text.trim();
     }
@@ -176,7 +280,11 @@ function buildPayload(rt, messages, args) {
   if (args.temperature != null) payload.temperature = Number(args.temperature);
   if (args.max_tokens) payload.max_tokens = Number(args.max_tokens);
   if (args.thinking != null) {
-    payload.thinking = { type: args.thinking === "on" ? "enabled" : "disabled" };
+    if (rt.pc.supportsThinking) {
+      payload.thinking = { type: args.thinking === "on" ? "enabled" : "disabled" };
+    } else {
+      console.error(`${colors.dim}(提示: --thinking 仅对智谱 GLM 生效，已忽略)${colors.reset}`);
+    }
   }
   if (args.debug) {
     console.error(`[debug] ${rt.baseUrl.replace(/\/+$/, "")}/chat/completions`);
@@ -286,7 +394,7 @@ function readQuestionFromFiles(files) {
 
 async function cmdAsk(args, cfg) {
   const rt = resolveRuntime(args, cfg);
-  requireKey(rt.apiKey);
+  requireKey(rt.apiKey, rt);
 
   let question = args._.join(" ").trim();
   if (!question && !process.stdin.isTTY) {
@@ -296,7 +404,7 @@ async function cmdAsk(args, cfg) {
     question = (question ? question + "\n\n" : "") + readQuestionFromFiles(args.file).join("\n\n");
   }
   if (!question) {
-    throw new ApiError('请提供问题内容，例如：node glm_cli.js ask "你好"（或用管道传入；交互式多轮请用 chat 子命令）');
+    throw new ApiError('请提供问题内容，例如：node llm_cli.js ask "你好"（或用管道传入；交互式多轮请用 chat 子命令）');
   }
 
   const messages = [];
@@ -316,6 +424,7 @@ const SLASH_HELP = [
   "命令:",
   "  /help              显示本帮助",
   "  /new               清空当前对话，重新开始",
+  "  /provider <名称>    临时切换供应商",
   "  /model <名称>       临时切换模型",
   "  /system <文本>      设置/更新 system 提示词（不带文本则清除）",
   "  /save [路径]        保存当前对话记录为 JSON",
@@ -324,7 +433,7 @@ const SLASH_HELP = [
 
 async function cmdChat(args, cfg) {
   const rt = resolveRuntime(args, cfg);
-  requireKey(rt.apiKey);
+  requireKey(rt.apiKey, rt);
 
   let messages = args.system ? [{ role: "system", content: args.system }] : [];
   if (args.resume) {
@@ -338,7 +447,7 @@ async function cmdChat(args, cfg) {
     if (data.model) rt.model = data.model;
   }
 
-  console.log(`${colors.cyan}glm-cli ${VERSION} · 模型 ${rt.model} · ${rt.baseUrl}${colors.reset}`);
+  console.log(`${colors.cyan}llm-cli ${VERSION} · ${rt.provider}(${rt.label}) · 模型 ${rt.model} · ${rt.baseUrl}${colors.reset}`);
   console.log(`${colors.dim}输入消息开始对话，/help 查看命令，/exit 退出。${colors.reset}`);
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -369,6 +478,26 @@ async function cmdChat(args, cfg) {
         else if (cmd === "/new") {
           messages = messages.filter((m) => m.role === "system");
           console.log(`${colors.dim}已清空对话。${colors.reset}`);
+        } else if (cmd === "/provider") {
+          if (rest) {
+            const p = normalizeProvider(rest);
+            const pc = PROVIDERS[p];
+            const conf = (cfg.providers && cfg.providers[p]) || {};
+            let k = process.env[pc.envKeys[0]] || conf.api_key;
+            if (!k) {
+              console.log(`${colors.red}[${p}] 未配置 Key：config set api-key --provider ${p}${colors.reset}`);
+            } else {
+              rt.provider = p;
+              rt.pc = pc;
+              rt.apiKey = k;
+              rt.baseUrl = conf.base_url || pc.defaultBase;
+              rt.model = conf.model || pc.defaultModel;
+              if (!rt.model) console.log(`${colors.dim}注意：[${p}] 无默认模型，请用 /model 指定。${colors.reset}`);
+              console.log(`${colors.dim}已切换供应商: ${p} (${pc.label})${colors.reset}`);
+            }
+          } else {
+            console.log(`当前供应商: ${rt.provider} (${rt.label})`);
+          }
         } else if (cmd === "/model") {
           if (rest) { rt.model = rest; console.log(`${colors.dim}已切换模型: ${rt.model}${colors.reset}`); }
           else console.log(`当前模型: ${rt.model}`);
@@ -383,11 +512,17 @@ async function cmdChat(args, cfg) {
         } else if (cmd === "/save") {
           const file = rest || HISTORY_FILE;
           fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
-          fs.writeFileSync(file, JSON.stringify({ model: rt.model, messages }, null, 2) + "\n", "utf8");
+          fs.writeFileSync(file, JSON.stringify({ provider: rt.provider, model: rt.model, messages }, null, 2) + "\n", "utf8");
           console.log(`${colors.dim}对话已保存到 ${file}${colors.reset}`);
         } else {
           console.log(`${colors.dim}未知命令 ${cmd}，输入 /help 查看帮助。${colors.reset}`);
         }
+        safePrompt();
+        continue;
+      }
+
+      if (!rt.model) {
+        console.log(`${colors.red}当前供应商没有默认模型，请先 /model <名称>。${colors.reset}`);
         safePrompt();
         continue;
       }
@@ -415,7 +550,7 @@ async function cmdChat(args, cfg) {
 
 async function cmdModels(args, cfg) {
   const rt = resolveRuntime(args, cfg);
-  requireKey(rt.apiKey);
+  requireKey(rt.apiKey, rt);
   const url = rt.baseUrl.replace(/\/+$/, "") + "/models";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(TIMEOUT_REASON), 60000);
@@ -424,7 +559,7 @@ async function cmdModels(args, cfg) {
     const obj = await resp.json();
     const items = obj.data || [];
     if (!items.length) {
-      console.log("服务端未返回模型列表（该接口可能不支持 /models）。请直接用 --model 指定模型名，或查阅开放平台文档。");
+      console.log("服务端未返回模型列表。请直接用 -m 指定模型名，或查阅对应平台文档。");
       return;
     }
     for (const it of items) console.log(typeof it === "string" ? it : it.id);
@@ -461,43 +596,71 @@ async function cmdConfig(args, cfg) {
     return;
   }
 
+  if (action === "list" || action === "providers") {
+    for (const [id, pc] of Object.entries(PROVIDERS)) {
+      const conf = (cfg.providers && cfg.providers[id]) || {};
+      const model = conf.model || pc.defaultModel || "(需 -m 指定)";
+      console.log(`${id.padEnd(13)} ${pc.label.padEnd(18)} key:${conf.api_key || process.env[pc.envKeys[0]] ? "已配" : "未配"}  默认模型: ${model}`);
+    }
+    console.log(`默认供应商: ${cfg.default_provider || "glm"}`);
+    return;
+  }
+
   if (action === "get") {
-    console.log(`配置文件 : ${CONFIG_FILE}`);
-    console.log(`api_key  : ${mask(cfg.api_key)}`);
-    console.log(`model    : ${cfg.model || `(默认 ${DEFAULT_MODEL})`}`);
-    console.log(`base_url : ${cfg.base_url || `(默认 ${DEFAULT_BASE_URL})`}`);
+    console.log(`配置文件      : ${CONFIG_FILE}`);
+    console.log(`默认供应商    : ${cfg.default_provider || "glm"}`);
+    for (const [id, pc] of Object.entries(PROVIDERS)) {
+      const conf = (cfg.providers && cfg.providers[id]) || {};
+      if (!conf.api_key && !conf.model && !conf.base_url) continue;
+      console.log(`[${id}]`);
+      console.log(`  api_key  : ${mask(conf.api_key)}`);
+      console.log(`  model    : ${conf.model || `(默认 ${pc.defaultModel || "需 -m 指定"})`}`);
+      console.log(`  base_url : ${conf.base_url || `(默认 ${pc.defaultBase})`}`);
+    }
     return;
   }
 
   const items = { "api-key": "api_key", model: "model", "base-url": "base_url" };
 
   if (action === "set") {
-    if (!item || !(item in items)) throw new ApiError("支持设置: api-key / model / base-url");
+    if (item === "provider") {
+      const key = normalizeProvider(value);
+      cfg.default_provider = key;
+      saveConfig(cfg);
+      console.log(`已设置默认供应商: ${key}（${PROVIDERS[key].label}）`);
+      return;
+    }
+    if (!item || !(item in items)) throw new ApiError("支持设置: api-key / model / base-url / provider");
+    const provider = providerOf(args, cfg);
     let v = value;
-    if (item === "api-key" && !v) v = await promptHidden("请输入 API Key（输入不会回显）: ");
+    if (item === "api-key" && !v) v = await promptHidden(`请输入 [${provider}] 的 API Key（输入不会回显）: `);
     v = (v || "").trim();
-    if (!v) throw new ApiError(`缺少 ${item} 的值，例如: node glm_cli.js config set ${item} <值>`);
-    cfg[items[item]] = v;
+    if (!v) throw new ApiError(`缺少 ${item} 的值，例如: node llm_cli.js config set ${item} <值> --provider ${provider}`);
+    cfg.providers = cfg.providers || {};
+    cfg.providers[provider] = cfg.providers[provider] || {};
+    cfg.providers[provider][items[item]] = v;
     saveConfig(cfg);
-    console.log(`已保存。配置文件: ${CONFIG_FILE}`);
+    console.log(`已保存到 [${provider}]。配置文件: ${CONFIG_FILE}`);
     return;
   }
 
   if (action === "del") {
     if (!item || !(item in items)) throw new ApiError("支持删除: api-key / model / base-url");
-    delete cfg[items[item]];
+    const provider = providerOf(args, cfg);
+    if (cfg.providers && cfg.providers[provider]) delete cfg.providers[provider][items[item]];
     saveConfig(cfg);
-    console.log("已删除。");
+    console.log(`已删除 [${provider}] 的 ${item}。`);
     return;
   }
 
-  throw new ApiError("用法: config set|get|del|path");
+  throw new ApiError("用法: config set|get|del|list|path");
 }
 
 // ---------------------------------------------------------------- 命令行入口
 
 const ALIASES = {
   "-m": "model", "--model": "model",
+  "-p": "provider", "--provider": "provider",
   "--api-key": "api_key",
   "--base-url": "base_url",
   "--system": "system",
@@ -510,36 +673,42 @@ const ALIASES = {
 };
 
 function printHelp() {
-  console.log(`glm-cli ${VERSION} —— 终端里直接使用智谱 GLM 系列模型（零依赖，Node.js >= 18）
+  const rows = Object.entries(PROVIDERS)
+    .map(([id, pc]) => `  ${id.padEnd(13)} ${pc.label.padEnd(18)} ${pc.defaultModel || "(需 -m)"}`)
+    .join("\n");
+  console.log(`llm-cli ${VERSION} —— 多供应商终端客户端（零依赖，Node.js >= 18）
 
-用法: node glm_cli.js <command> [参数] [选项]
+用法: node llm_cli.js <command> [参数] [选项]
 
 命令:
-  ask      单次提问: node glm_cli.js ask "问题"
-  chat     多轮交互对话
+  ask      单次提问: node llm_cli.js ask "问题"
+  chat     多轮交互对话（支持 /provider /model /system /save）
   models   列出当前账号可用的模型
-  config   管理本地配置（API Key 等）
+  config   管理本地配置: set/get/del/list/path
+
+供应商 (-p/--provider，默认 glm，也可按模型名前缀自动推断):
+${rows}
 
 选项:
-  -m, --model <名称>       模型名（默认 ${DEFAULT_MODEL}）
+  -m, --model <名称>       模型名（无默认模型的供应商必须指定）
+  -p, --provider <名称>    供应商
   --api-key <Key>          本次使用的 API Key（优先级最高）
-  --base-url <地址>        接口地址（默认智谱国内站，海外 z.ai 见 README）
+  --base-url <地址>        接口地址
   --system <文本>          system 提示词
   -t, --temperature <值>   采样温度
   --max-tokens <数量>      最大输出 token 数
-  --thinking <on|off>      深度思考开关（对支持的模型生效）
+  --thinking <on|off>      深度思考开关（仅智谱 GLM 生效）
   --no-stream              关闭流式输出
   --no-color / --debug     关闭彩色 / 调试输出
 
 示例:
-  node glm_cli.js config set api-key                        # 保存 API Key（隐藏输入）
-  node glm_cli.js ask "用一句话解释量子纠缠"
-  node glm_cli.js ask "总结这份文档" -f report.txt
-  type report.txt | node glm_cli.js ask "总结这份文档"
-  node glm_cli.js ask "写一首关于秋天的诗" -o poem.txt
-  node glm_cli.js chat --thinking on
-  node glm_cli.js chat --resume chat-latest.json
-  node glm_cli.js models`);
+  node llm_cli.js config set api-key -p mimo
+  node llm_cli.js config list                     # 查看所有供应商配置状态
+  node llm_cli.js ask "用一句话解释量子纠缠"
+  node llm_cli.js ask -m deepseek-v4-pro "推理题" # 模型名前缀自动选 DeepSeek
+  node llm_cli.js chat -p kimi
+  node llm_cli.js models -p glm
+  type report.txt | node llm_cli.js ask "总结这份文档"`);
 }
 
 function parseArgs(argv) {
@@ -547,7 +716,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "-h" || a === "--help") { opts.help = true; continue; }
-    if (a === "-V" || a === "--version") { console.log(`glm-cli ${VERSION}`); process.exit(0); }
+    if (a === "-V" || a === "--version") { console.log(`llm-cli ${VERSION}`); process.exit(0); }
     if (a === "--no-stream") { opts.no_stream = true; continue; }
     if (a === "--no-color") { opts.no_color = true; continue; }
     if (a === "--debug") { opts.debug = true; continue; }

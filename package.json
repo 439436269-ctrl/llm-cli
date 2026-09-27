@@ -1,15 +1,17 @@
 {
   "name": "@vfvrpq/llm-cli",
-  "version": "1.0.0",
-  "description": "终端里直接使用智谱 GLM 与 DeepSeek 模型的零依赖命令行客户端（含 glm-cli 与 deepseek-cli 两个命令）",
+  "version": "1.1.0",
+  "description": "终端里直接使用智谱 GLM、DeepSeek、小米 MiMo、Kimi 等主流模型的零依赖命令行客户端（含 llm-cli / glm-cli / deepseek-cli 三个命令）",
   "license": "MIT",
   "author": "vfvrpq",
   "type": "commonjs",
   "bin": {
+    "llm-cli": "llm_cli.js",
     "glm-cli": "glm_cli.js",
     "deepseek-cli": "deepseek_cli.js"
   },
   "files": [
+    "llm_cli.js",
     "glm_cli.js",
     "deepseek_cli.js",
     "README.md",
@@ -21,8 +23,14 @@
   "keywords": [
     "glm",
     "deepseek",
+    "mimo",
+    "xiaomi",
+    "kimi",
+    "moonshot",
+    "siliconflow",
+    "ark",
+    "doubao",
     "zhipu",
-    "bigmodel",
     "llm",
     "cli",
     "chat"

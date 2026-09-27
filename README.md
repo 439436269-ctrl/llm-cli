@@ -24,6 +24,33 @@ node glm_cli.js ask "你好"
 
 下文示例中的 `node glm_cli.js` / `node deepseek_cli.js` 在全局安装后可分别换成 `glm-cli` / `deepseek-cli`。
 
+## 多供应商 llm-cli（v1.1 新增）
+
+`llm_cli.js`（bin `llm-cli`）把多家供应商收进一个脚本，配置目录 `~/.llm-cli`：
+
+| 供应商 | 默认端点 | 默认模型 | Key 环境变量 |
+|---|---|---|---|
+| `glm` 智谱 | `open.bigmodel.cn/api/paas/v4` | `glm-5.3-flash` | `GLM_API_KEY` |
+| `deepseek` | `api.deepseek.com/v1` | `deepseek-flash` | `DEEPSEEK_API_KEY` |
+| `mimo` 小米 | `api.xiaomimimo.com/v1` | `mimo-v2.6-flash` | `MIMO_API_KEY` |
+| `kimi` 月之暗面 | `api.moonshot.cn/v1` | `kimi-latest` | `MOONSHOT_API_KEY` |
+| `siliconflow` 硅基流动 | `api.siliconflow.cn/v1` | 需 `-m` 指定 | `SILICONFLOW_API_KEY` |
+| `ark` 火山方舟（豆包） | `ark.cn-beijing.volces.com/api/v3` | 需 `-m` 指定 | `ARK_API_KEY` |
+| `openai` | `api.openai.com/v1` | 需 `-m` 指定 | `OPENAI_API_KEY` |
+
+```bash
+node llm_cli.js config set api-key -p mimo       # 按供应商保存 Key
+node llm_cli.js config list                       # 查看全部配置状态
+node llm_cli.js ask "你好"                        # 默认走 glm
+node llm_cli.js ask -m deepseek-v4-pro "推理题"   # 按模型名前缀自动选供应商
+node llm_cli.js chat -p kimi                      # 指定供应商
+node llm_cli.js models -p mimo                    # 查看该账号可用模型
+```
+
+- 供应商选择优先级：`-p` > 模型名前缀推断 > `config set provider` > 默认 `glm`
+- 智谱 coding 订阅（本机 MiMo 同款配置）：`--base-url https://open.bigmodel.cn/api/coding/paas/v4`
+- 端点与模型清单均已实测；cc-switch（farion1231/cc-switch）的 OpenAI 兼容端点清单是本表的参考来源
+
 ## 准备 API Key
 
 - GLM（智谱）：<https://open.bigmodel.cn> 控制台 → API Key（海外版 <https://z.ai>）
