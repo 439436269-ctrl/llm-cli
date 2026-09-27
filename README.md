@@ -51,6 +51,27 @@ node llm_cli.js models -p mimo                    # 查看该账号可用模型
 - 智谱 coding 订阅（本机 MiMo 同款配置）：`--base-url https://open.bigmodel.cn/api/coding/paas/v4`
 - 端点与模型清单均已实测；cc-switch（farion1231/cc-switch）的 OpenAI 兼容端点清单是本表的参考来源
 
+## 项目结构（v1.2 原子化重构）
+
+```
+llm_cli.js / glm_cli.js / deepseek_cli.js   # 三个薄入口（只声明注册表与特性开关）
+lib/
+├── run.js            # 入口引导与子命令分发
+├── args.js           # 参数解析与帮助生成（按入口特性开关生成）
+├── config.js         # 配置读写（单供应商入口兼容 1.x 扁平格式）
+├── registry.js       # 供应商选择 / 模型名前缀推断 / 运行时与 Key 解析
+├── http.js           # fetch 封装 + SSE 流解析 + 超时
+├── chat.js           # payload 构建（thinking 门控）与流式渲染
+├── colors.js / errors.js / hidden.js
+└── commands/         # ask / chat / models / config 四个子命令
+providers/
+├── index.js          # 聚合注册表（新增供应商在此登记一行）
+└── <名称>/index.js   # 每家供应商独立文件夹：端点 / 默认模型 / Key 环境变量 / 名称前缀
+```
+
+**新增供应商**：在 `providers/<名称>/index.js` 写定义 → `providers/index.js` 加一行登记，
+即被 `-p`、模型名前缀推断、`config`、`models` 自动识别。
+
 ## 准备 API Key
 
 - GLM（智谱）：<https://open.bigmodel.cn> 控制台 → API Key（海外版 <https://z.ai>）
