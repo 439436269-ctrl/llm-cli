@@ -1,6 +1,6 @@
 {
   "name": "@vfvrpq/llm-cli",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "终端里直接使用智谱 GLM、DeepSeek、小米 MiMo、Kimi 等主流模型的零依赖命令行客户端（含 llm-cli / glm-cli / deepseek-cli 三个命令）",
   "license": "MIT",
   "author": "vfvrpq",

@@ -1,11 +1,11 @@
-# llm-cli —— GLM / DeepSeek 终端命令行客户端
+# llm-cli —— GLM / DeepSeek / MiMo 等终端命令行客户端
 
-两个**零依赖**单文件脚本（Node.js ≥ 18），各连一家服务商；API Key 均由你本人手动填写，代码中不内置任何密钥。
+三个**零依赖**命令行入口（Node.js ≥ 18）：`glm-cli` / `deepseek-cli` 单供应商 + `llm-cli` 多供应商（7 家）；API Key 均由你本人手动填写，代码中不内置任何密钥。
 
 | 脚本 | 服务商 | 默认模型 | 配置目录 | Key 环境变量 |
 |---|---|---|---|---|
 | `glm_cli.js` | 智谱 GLM | `glm-5.3-flash` | `~/.glm-cli` | `GLM_API_KEY`（或 `ZHIPUAI_API_KEY`） |
-| `deepseek_cli.js` | DeepSeek | `deepseek-chat` | `~/.deepseek-cli` | `DEEPSEEK_API_KEY` |
+| `deepseek_cli.js` | DeepSeek | `deepseek-flash` | `~/.deepseek-cli` | `DEEPSEEK_API_KEY` |
 
 Windows 下可用同目录的 `glm.bat` / `deepseek.bat` 启动，例如 `.\glm.bat chat`。
 
@@ -128,6 +128,51 @@ node deepseek_cli.js chat --resume chat-latest.json
 
 配置优先级：命令行参数 > 环境变量 > 配置文件 > 内置默认值。
 配置持久化：`config set model/base-url`、`config get`（Key 脱敏显示）、`config del`、`config path`。
+
+## 实测案例（2026-09-27 真实调用归档）
+
+小米 MiMo（`llm_cli.js -p mimo`，v1.2 原子化重构后实测，端点 `api.xiaomimimo.com/v1`）：
+
+```text
+$ node llm_cli.js models -p mimo
+mimo-v2.5
+mimo-v2.5-asr
+mimo-v2.5-pro
+mimo-v2.5-tts
+mimo-v2.5-tts-voiceclone
+mimo-v2.5-tts-voicedesign
+mimo-v2.6-flash
+mimo-v2.6-pro
+mimo-v2.6-pro-ultraspeed
+
+$ node llm_cli.js ask -p mimo "用两句话介绍一下你自己，说明你能做什么"
+—— 思考 ——
+The user is asking me to introduce myself in two sentences, explaining what I can do.
+—— 回答 ——
+我是MiMo，由小米大模型Core团队（Xiaomi LLM Core Team）研发的AI大语言模型。我能够回答各类问题、
+进行多语言翻译、辅助文案写作、代码编写与调试……
+[tokens] 输入 16 · 输出 82
+
+$ node llm_cli.js chat -p mimo        # 多轮上下文记忆
+你 > 我叫小明，记住我
+—— 回答 ——
+好的，小明！我记住了，你叫小明。有什么我可以帮你的吗？
+[tokens] 输入 14 · 输出 59
+你 > 我叫什么名字？
+—— 回答 ——
+你叫小明！
+[tokens] 输入 53 · 输出 56          # 第二轮输入 53 tokens，历史消息完整送达
+```
+
+### 发版前回归矩阵
+
+| 检查项 | 说明 |
+|---|---|
+| 语法 | 全部源文件 `node --check`（24 个） |
+| mock 全链路 | 三入口 ask/chat/models/config、模型名前缀推断、thinking 门控、无默认模型报错 |
+| 1.x 配置兼容 | 旧扁平 `config.json` 直接可读；单供应商入口写回保持扁平格式 |
+| 真实端点 | GLM / DeepSeek / MiMo `GET /models` + MiMo 真实流式多轮对话 |
+| registry 冒烟 | `npm i -g` 后三命令 `-V` 正确、`lib/` 与 `providers/` 随包分发 |
 
 ## 常见问题
 
